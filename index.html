@@ -4104,12 +4104,20 @@ function showCategory(cat){
   document.querySelectorAll('.topic-group').forEach(function(g){g.classList.toggle('active', g.dataset.cat===cat);});
   document.querySelectorAll('.cat-btn').forEach(function(b){b.classList.toggle('active', b.dataset.cat===cat);});
 }
-function showTopic(id){ showCategory(TOPIC_CAT[id]); render(id); }
+// 別の論点へ切り替えるときは暗記モードに戻す（学習は必ず暗記から。同じ論点の再クリックでは維持）
+function ensureMemorizeFor(id){
+  if (id !== currentTopic && MODE !== 'memorize') {
+    MODE = 'memorize';
+    try{ localStorage.setItem('quizMode', 'memorize'); }catch(e){}
+    document.querySelectorAll('.mode-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.mode === 'memorize'); });
+  }
+}
+function showTopic(id){ ensureMemorizeFor(id); showCategory(TOPIC_CAT[id]); render(id); }
 // カテゴリタップで先頭論点を自動表示（既にそのカテゴリの論点を開いている場合は維持）
 var CAT_FIRST = {guide:'guide', env:'t1', str:'t6', mat:'t11', set:'t15', con:'t18', qc:'t26', law:'t32'};
 function openCategory(cat){
   showCategory(cat);
-  if (TOPIC_CAT[currentTopic] !== cat) render(CAT_FIRST[cat]);
+  if (TOPIC_CAT[currentTopic] !== cat) { ensureMemorizeFor(CAT_FIRST[cat]); render(CAT_FIRST[cat]); }
 }
 function startFirstTopic(){ showTopic('t1'); window.scrollTo({top:0, behavior:'smooth'}); }
 // マスター済みバッジ（テストモードで満点を取った論点に✓・localStorage保存・自分にだけ見える）
