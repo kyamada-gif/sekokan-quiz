@@ -68,6 +68,12 @@
   .guide-start button:hover{background:var(--accent-dk);}
   .topic-group button.done::after{content:" ✓";color:#2e9e57;font-weight:700;}
   .mastery-count{margin-left:auto;font-size:12.5px;font-weight:600;color:#2e9e57;background:#eef8f1;border:1px solid #d4ecdc;padding:5px 12px;border-radius:999px;white-space:nowrap;}
+  .blank-count{display:inline-block;font-size:12px;font-weight:600;color:#5c739a;background:#eef2f9;border:1px solid #dbe4f2;border-radius:999px;padding:4px 12px;margin:2px 0 10px;}
+  /* 進捗リング（本文枠のすぐ右に固定・スクロールしても常時表示・両モード共通） */
+  .prog-ring{position:fixed;left:min(calc(50% + 450px), calc(100vw - 64px));top:55%;width:56px;height:56px;border-radius:50%;z-index:45;/* 選択肢ポップアップ(50)より下層に */display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;padding:0;box-shadow:0 2px 10px rgba(30,40,60,.22);background:conic-gradient(var(--accent) 0deg,#e8ebf0 0deg);font-family:inherit;}
+  .prog-ring .inner{width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#3a5a86;letter-spacing:.02em;}
+  .prog-ring.complete .inner{color:#2e9e57;}
+  .prog-ring:hover .inner{background:#f6f9ff;}
   .score.perfect{background:#fff6da;color:#9a7b14;animation:scorepop .45s ease;}
   @keyframes scorepop{0%{transform:scale(.92);}55%{transform:scale(1.05);}100%{transform:scale(1);}}
   .blank-input{display:inline-block;width:120px;padding:3px 8px;border:1.5px solid #cdd8ea;border-radius:6px;font-size:14px;margin:0 2px;background:#fff;}
@@ -203,6 +209,7 @@
 </nav>
 
 <div id="topic-area" class="content"></div>
+<button id="prog-ring" class="prog-ring" style="display:none" onclick="jumpNextBlank()" title="次の未回答の穴埋めへ"><span class="inner" id="prog-ring-text"></span></button>
 
 <script>
 const TOPICS = {
@@ -3834,6 +3841,7 @@ function answerBlankChoice(blankId, btnEl, isCorrect) {
     if (hint) hint.classList.remove('show');
     pop.classList.remove('show'); wrap.classList.remove('open');
   }
+  updateProgRing();
 }
 
 function resetBlankChoice(blankId) {
@@ -3858,6 +3866,7 @@ function resetBlankChoice(blankId) {
   // 選択肢は閉じた状態に戻す
   pop.classList.remove('show');
   wrap.classList.remove('open');
+  updateProgRing();
 }
 function shuffleArray(arr) {
   // Fisher-Yates shuffle
@@ -3936,6 +3945,54 @@ function answerPastExam(examId, liEl, isCorrect) {
   document.getElementById(`exp-${examId}`).classList.add('show');
 }
 
+// 進捗リング（暗記・テスト両モード）：回答済み/総数を常時表示し、タップで次の未回答へジャンプ
+function updateProgRing() {
+  const el = document.getElementById('prog-ring');
+  if (!el) return;
+  const topic = TOPICS[currentTopic];
+  if (!topic || topic.guide) { el.style.display = 'none'; return; }
+  let total = 0, done = 0;
+  document.querySelectorAll('.blank-choice-wrap').forEach(w => {
+    if (w.id.startsWith(`blank-${currentTopic}-`)) {
+      total++;
+      const ph = w.querySelector('.blank-placeholder');
+      if (ph && ph.classList.contains('answered')) done++;
+    }
+  });
+  document.querySelectorAll('.blank-input').forEach(inp => {
+    if (inp.id.startsWith(`blank-${currentTopic}-`)) { total++; if (inp.value.trim()) done++; }
+  });
+  if (!total) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  const deg = Math.round(done / total * 360);
+  el.style.background = `conic-gradient(var(--accent) ${deg}deg, #e8ebf0 ${deg}deg)`;
+  document.getElementById('prog-ring-text').textContent = `${done}/${total}`;
+  el.classList.toggle('complete', done === total);
+}
+function jumpNextBlank(fromId) {
+  // fromId があればその直後から探し、末尾まで無ければ先頭に戻って探す
+  const wraps = Array.from(document.querySelectorAll('.blank-choice-wrap'))
+    .filter(w => w.id.startsWith(`blank-${currentTopic}-`));
+  const isUnanswered = w => {
+    const ph = w.querySelector('.blank-placeholder');
+    return !(ph && ph.classList.contains('answered'));
+  };
+  const start = fromId ? wraps.findIndex(w => w.id === fromId) + 1 : 0;
+  const ordered = wraps.slice(start).concat(wraps.slice(0, start));
+  const next = ordered.find(isUnanswered);
+  if (next) next.scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+// 論点内の穴埋め総数（過去問・ひっかけ集は除く）
+function countTopicBlanks(topic) {
+  let n = 0;
+  const scan = parts => { for (const p of parts || []) if (typeof p === 'object' && p.a !== undefined) n++; };
+  for (const b of topic.blocks) {
+    if (b.type === 'pastexam' || b.type === 'traps') continue;
+    if (b.parts) scan(b.parts);
+    if (b.items) for (const it of b.items) if (it.parts) scan(it.parts);
+  }
+  return n;
+}
 function render(topicId) {
   currentTopic = topicId;
   const topic = TOPICS[topicId];
@@ -3946,6 +4003,7 @@ function render(topicId) {
   if (topic.guide) {
     if (topic.lead) html += `<div class="guide-lead">${renderParts(topic.lead, topicId)}</div>`;
   } else {
+    html += `<div class="blank-count">📝 この論点の穴埋め：${countTopicBlanks(topic)}個</div>`;
     html += `<div class="topic-meta"><span class="meta-label">押さえる要点</span>${topic.meta}</div>`;
   }
   for (const block of topic.blocks) {
@@ -3976,6 +4034,7 @@ function render(topicId) {
   area.innerHTML = html;
   document.querySelectorAll('.topic-group button').forEach(b => b.classList.remove('active'));
   document.getElementById(`btn-${topicId}`).classList.add('active');
+  updateProgRing();
 }
 function grade(topicId) {
   if (gradedLock) return;
@@ -4036,6 +4095,7 @@ function grade(topicId) {
     scoreDiv.innerHTML += '<div class="score-note">採点済みです。赤い箇所の横に正解が表示されています。再挑戦するには「もう一度解き直す」を押してください。</div>';
   }
   scoreDiv.scrollIntoView({behavior:'smooth', block:'center'});
+  updateProgRing();
 }
 function showAll(topicId) {
   document.querySelectorAll(`.blank-input`).forEach(inp => {
@@ -4067,6 +4127,7 @@ function showAll(topicId) {
       wrap.classList.remove('open');
     }
   });
+  updateProgRing();
 }
 function reset(topicId) {
   gradedLock = false; // 採点ロック解除（リセットのみが解除手段）
@@ -4095,6 +4156,7 @@ function reset(topicId) {
   });
   const sc = document.getElementById(`score-${topicId}`);
   if (sc) sc.innerHTML = '';
+  updateProgRing();
   window.scrollTo({top: 0, behavior: 'smooth'}); // 解き直しは論点の先頭から（両モード共通）
 }
 var TOPIC_CAT={};
