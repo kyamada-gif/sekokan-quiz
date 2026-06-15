@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>2級建築施工管理 第一次検定 穴埋めクイズ（全35論点）</title>
 <style>
   :root{
@@ -11,10 +12,10 @@
   }
   *{box-sizing:border-box;}
   body{font-family:"Hiragino Sans","Yu Gothic",sans-serif;max-width:880px;margin:0 auto;padding:24px 18px 80px;line-height:1.95;color:var(--ink);background:var(--bg);font-size:15.5px;}
-  h1{font-size:20px;font-weight:600;color:var(--accent-dk);margin:4px 0 16px;}
+  h1{font-size:clamp(16px,4.6vw,20px);font-weight:600;color:var(--accent-dk);margin:4px 0 16px;line-height:1.4;overflow-wrap:anywhere;}
   h2{font-size:19px;font-weight:600;color:var(--accent-dk);margin:6px 0 4px;}
   h3{font-size:16px;color:#444;margin-top:22px;}
-  nav{background:var(--card);padding:12px 14px;border-radius:12px;margin-bottom:22px;position:sticky;top:10px;z-index:5;box-shadow:0 1px 4px rgba(30,40,60,.07);}
+  nav{background:var(--card);padding:12px 14px;border-radius:12px;margin-bottom:22px;box-shadow:0 1px 4px rgba(30,40,60,.07);}
   .mode-toggle{display:flex;align-items:center;gap:6px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line);}
   .mode-label{font-size:12px;color:var(--muted);margin-right:2px;}
   .mode-btn{padding:5px 13px;border:1.5px solid var(--line);border-radius:999px;background:#fff;color:var(--muted);font-size:13px;cursor:pointer;font-family:inherit;transition:background .15s,color .15s;}
@@ -34,6 +35,7 @@
   p{margin:13px 0;}
   ul{padding-left:22px;} li{margin-bottom:8px;}
   .intro{background:var(--accent-soft);padding:14px 18px;border-radius:10px;margin-bottom:18px;font-size:13.5px;color:#3b4250;}
+  .freq-note{font-size:11.5px;color:var(--muted);margin:2px 0 12px;line-height:1.6;}
   .topic-meta{background:#f3f6fb;border-left:3px solid var(--accent);padding:11px 15px;border-radius:8px;margin:8px 0 20px;color:#46506a;font-size:14px;}
   .meta-label{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--accent);padding:2px 8px;border-radius:999px;margin-right:8px;vertical-align:1px;}
   .blank-num{color:var(--accent);font-weight:bold;font-size:11px;vertical-align:super;margin-right:1px;}
@@ -59,19 +61,19 @@
   .blank-reset-btn{display:inline-block;padding:3px 8px;border:1px solid #d6dae2;border-radius:6px;background:#f4f5f7;font-size:11px;cursor:pointer;line-height:1.2;margin-left:4px;}
   .blank-reset-btn:hover{background:#e8eaee;}
   /* --- モードUI改善（①暗記→②テスト・マスターバッジ等） --- */
-  .mode-toggle{display:flex;align-items:center;gap:7px;}
+  /* モード切替バーだけスクロール時に上部固定（その下のジャンル/論点選択は固定しない） */
+  .mode-toggle{display:flex;align-items:center;gap:7px;flex-wrap:wrap;position:sticky;top:0;z-index:60;background:var(--card);padding:10px 14px;border-radius:12px;margin-bottom:14px;border-bottom:0;box-shadow:0 1px 4px rgba(30,40,60,.07);}
   .mode-arrow{color:#b9c2cf;font-size:15px;font-weight:600;}
   #topic-area{padding-bottom:96px;} /* 浮遊ボタンバーが本文を隠さないよう余白 */
-  nav{z-index:60;} /* 固定ナビは選択肢ポップアップ(z-index:50)より常に手前 */
   .guide-start{text-align:center;margin:28px 0 8px;}
   .guide-start button{padding:12px 30px;border:none;border-radius:999px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:0 2px 10px rgba(30,40,60,.2);}
   .guide-start button:hover{background:var(--accent-dk);}
   .topic-group button.done::after{content:" ✓";color:#2e9e57;font-weight:700;}
   .mastery-count{margin-left:auto;font-size:12.5px;font-weight:600;color:#2e9e57;background:#eef8f1;border:1px solid #d4ecdc;padding:5px 12px;border-radius:999px;white-space:nowrap;}
   .blank-count{display:inline-block;font-size:12px;font-weight:600;color:#5c739a;background:#eef2f9;border:1px solid #dbe4f2;border-radius:999px;padding:4px 12px;margin:2px 0 10px;}
-  /* 進捗リング（本文枠のすぐ右に固定・スクロールしても常時表示・両モード共通） */
-  .prog-ring{position:fixed;left:min(calc(50% + 450px), calc(100vw - 64px));top:55%;width:56px;height:56px;border-radius:50%;z-index:45;/* 選択肢ポップアップ(50)より下層に */display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;padding:0;box-shadow:0 2px 10px rgba(30,40,60,.22);background:conic-gradient(var(--accent) 0deg,#e8ebf0 0deg);font-family:inherit;}
-  .prog-ring .inner{width:44px;height:44px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#3a5a86;letter-spacing:.02em;}
+  /* 進捗リング（右下に固定・スクロールしても常時表示・両モード共通） */
+  .prog-ring{position:fixed;right:18px;bottom:120px;width:64px;height:64px;border-radius:50%;z-index:45;/* 選択肢ポップアップ(50)より下層に */display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;padding:0;box-shadow:0 2px 10px rgba(30,40,60,.22);background:conic-gradient(var(--accent) 0deg,#e8ebf0 0deg);font-family:inherit;}
+  .prog-ring .inner{width:51px;height:51px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;color:#3a5a86;letter-spacing:.02em;}
   .prog-ring.complete .inner{color:#2e9e57;}
   .prog-ring:hover .inner{background:#f6f9ff;}
   .score.perfect{background:#fff6da;color:#9a7b14;animation:scorepop .45s ease;}
@@ -105,8 +107,9 @@
   .past-exam .explanation.show{display:block;}
   .pe-reset-btn{display:inline-block;margin-top:10px;padding:6px 14px;background:#eef0f3;color:#555;border:none;border-radius:6px;cursor:pointer;font-size:12.5px;}
   .pe-reset-btn:hover{background:#e2e5ea;}
-  .controls{margin:26px 0 0;text-align:center;position:sticky;bottom:14px;z-index:4;}
-  .controls button{padding:10px 22px;font-size:14.5px;border:1.5px solid transparent;border-radius:999px;cursor:pointer;margin:0 5px;box-shadow:0 2px 8px rgba(30,40,60,.16);font-family:inherit;}
+  .pe-close-btn{margin-left:8px;}
+  .controls{margin:26px 0 0;display:flex;flex-wrap:wrap;justify-content:center;gap:10px 12px;position:sticky;bottom:14px;z-index:4;}
+  .controls button{padding:10px 22px;font-size:14.5px;border:1.5px solid transparent;border-radius:999px;cursor:pointer;margin:0;box-shadow:0 2px 8px rgba(30,40,60,.16);font-family:inherit;}
   .grade-btn{background:var(--accent);color:#fff;} .grade-btn:hover{background:var(--accent-dk);}
   .grade-btn:disabled{background:#c4ccd8;cursor:not-allowed;}
   .score-note{font-size:11.5px;color:#8a93a3;margin-top:4px;text-align:center;}
@@ -125,23 +128,37 @@
   .guide-note .nt{display:inline-block;font-size:11px;font-weight:700;color:#fff;background:var(--accent);padding:2px 8px;border-radius:999px;margin-right:8px;vertical-align:1px;}
   @media(max-width:600px){
     body{padding:14px 12px 70px;font-size:15px;}
-    .content{padding:18px 16px;}
+    .content{padding:18px 16px;overflow-wrap:anywhere;}
     .blank-choices-pop{flex-wrap:wrap;white-space:normal;max-width:82vw;}
+    /* タイトル余白のみ調整（サイズはclampで自動調整・PC/スマホ共通表記） */
+    h1{margin:2px 0 12px;}
+    /* 上部カード（モード／ジャンル）の余白を詰めて本文を早く見せる */
+    .mode-toggle{margin-bottom:10px;padding:9px 12px;}
+    nav{margin-bottom:14px;padding:10px 12px;}
+    /* ジャンルは縦積みにせず、横1行でスワイプできるように */
+    .cat-bar{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+    .cat-bar::-webkit-scrollbar{display:none;}
+    .cat-btn{flex:0 0 auto;}
+    /* 採点バーのボタンを少し小さく整え、折り返しても窮屈に見せない */
+    .controls button{padding:9px 16px;font-size:13.5px;}
+    /* 進捗リングは狭幅で小さめに（被り・圧迫を防ぐ） */
+    .prog-ring{width:58px;height:58px;bottom:118px;right:14px;}
+    .prog-ring .inner{width:46px;height:46px;font-size:11.5px;}
   }
 </style>
 </head>
 <body>
 
-<h1>2級建築施工管理 第一次検定 — 穴埋めクイズ（全35論点：建築学・施工・施工管理法・法規）</h1>
+<h1>2級建築施工管理 第一次検定 穴埋めクイズ</h1>
 
+<div class="mode-toggle">
+  <span class="mode-label">モード：</span>
+  <button class="mode-btn" data-mode="memorize" onclick="setMode('memorize')">① 📖 暗記</button>
+  <span class="mode-arrow">→</span>
+  <button class="mode-btn" data-mode="test" onclick="setMode('test')">② ✍️ テスト</button>
+  <span id="mastery-count" class="mastery-count"></span>
+</div>
 <nav>
-  <div class="mode-toggle">
-    <span class="mode-label">モード：</span>
-    <button class="mode-btn" data-mode="memorize" onclick="setMode('memorize')">① 📖 暗記</button>
-    <span class="mode-arrow">→</span>
-    <button class="mode-btn" data-mode="test" onclick="setMode('test')">② ✍️ テスト</button>
-    <span id="mastery-count" class="mastery-count"></span>
-  </div>
   <div class="cat-bar">
     <button class="cat-btn active" data-cat="guide" onclick="openCategory('guide')">📖 ガイド</button>
     <button class="cat-btn" data-cat="env" onclick="openCategory('env')">環境工学</button>
@@ -3901,6 +3918,7 @@ function renderPastExam(topicId, exam) {
         <strong>解説：</strong> ${exam.explanation}
       </div>
       <button class="pe-reset-btn" onclick="resetPastExam('${examId}')">🔄 もう一度解き直す</button>
+      <button class="pe-reset-btn pe-close-btn" onclick="closePastExam('${examId}')">✕ 閉じる</button>
     </div>
   </details>`;
   return html;
@@ -3926,6 +3944,15 @@ function resetPastExam(examId) {
   });
 }
 
+function closePastExam(examId) {
+  const parent = document.getElementById(examId);
+  if (!parent) return;
+  const det = parent.closest('details.pe-wrap');
+  if (!det) return;
+  det.open = false; // 畳む（解答状態は保持。再度開けば続きから見える）
+  const sm = det.querySelector('summary');
+  if (sm) sm.scrollIntoView({behavior:'smooth', block:'center'}); // 上スクロール不要で該当見出しに戻る
+}
 function answerPastExam(examId, liEl, isCorrect) {
   const parent = document.getElementById(examId);
   if (!parent) return;
@@ -4003,7 +4030,7 @@ function render(topicId) {
   if (topic.guide) {
     if (topic.lead) html += `<div class="guide-lead">${renderParts(topic.lead, topicId)}</div>`;
   } else {
-    html += `<div class="blank-count">📝 この論点の穴埋め：${countTopicBlanks(topic)}個</div>`;
+    html += `<div class="freq-note">※「出題◯回」＝全14回の過去問（H30〜R7）で問われた回数。同じ年に2問以上のこともあります。</div>`;
     html += `<div class="topic-meta"><span class="meta-label">押さえる要点</span>${topic.meta}</div>`;
   }
   for (const block of topic.blocks) {
