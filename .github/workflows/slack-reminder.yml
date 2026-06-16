@@ -1,0 +1,51 @@
+name: Slack学習リマインダー
+
+# JST(UTC+9) で 朝8:00 / 夕18:00 / 夜22:00 に起動。
+# cron は UTC 基準のため 9h 引いた時刻を指定（JapanはDST無し＝常にUTC+9）。
+# 平日判定・カリキュラム進度は post.py 側で JST 日付から判断する。
+on:
+  schedule:
+    - cron: '0 23 * * *'   # 08:00 JST（前日23:00 UTC）= morning
+    - cron: '0 9 * * *'    # 18:00 JST（09:00 UTC）   = evening
+    - cron: '0 13 * * *'   # 22:00 JST（13:00 UTC）   = night
+  workflow_dispatch:        # 手動テスト用
+    inputs:
+      slot:
+        description: 'morning / evening / night'
+        required: true
+        default: 'morning'
+      dry_run:
+        description: 'true なら投稿せず内容のみ出力'
+        required: false
+        default: 'false'
+      override_date:
+        description: 'YYYY-MM-DD でJST日付を固定（テスト用。通常は空欄）'
+        required: false
+        default: ''
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve slot from trigger
+        id: slot
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "slot=${{ github.event.inputs.slot }}" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ github.event.schedule }}" in
+              "0 23 * * *") echo "slot=morning" >> "$GITHUB_OUTPUT" ;;
+              "0 9 * * *")  echo "slot=evening" >> "$GITHUB_OUTPUT" ;;
+              "0 13 * * *") echo "slot=night"   >> "$GITHUB_OUTPUT" ;;
+              *)            echo "slot=morning" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Post to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '' }}
+          OVERRIDE_DATE: ${{ github.event.inputs.override_date }}
+        run: python3 slackbot/post.py "${{ steps.slot.outputs.slot }}"
