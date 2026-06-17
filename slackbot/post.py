@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-2級建築施工管理 学習リマインダー（Slack Incoming Webhook 投稿）
+2級建築施工管理 学習リマインダー（Slack Webhook 投稿）
 
-GitHub Actions から 1 日 3 回（朝/夕/夜）起動される想定。
-JST(UTC+9) の日付・曜日・進度（何論点目か）はこのスクリプト側で判定し、
+GitHub Actions から 1 日 2 回（朝8時=占い＋今日の学習内容 / 夕18時=軽い提出リマインド）
+起動される想定。JST(UTC+9) の日付・曜日・進度（何論点目か）はこのスクリプト側で判定し、
 平日のみ投稿。土日・開始前・全周回の完走後は何もしない。
 
 カリキュラムは curriculum.json の "rounds" 回だけ全論点を繰り返す
 （1周目＝新規学習、2周目以降＝復習）。全周完走後は投稿しない。
 
+★ 文面の編集は messages.json だけで完結する（このコードは触らなくてよい）。
+
 使い方:
   python3 slackbot/post.py <slot>
-    slot = morning | evening | night
+    slot = morning | evening
 
 環境変数:
   SLACK_WEBHOOK_URL  ... 投稿先 Webhook（必須。未設定かつ DRY_RUN 以外はエラー）
@@ -32,6 +34,25 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def load_config():
     with open(os.path.join(HERE, "curriculum.json"), encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_messages():
+    """文面テンプレート（messages.json）を読み込む。文面はこの JSON だけで編集できる。"""
+    with open(os.path.join(HERE, "messages.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+MESSAGES = load_messages()
+
+
+def _fmt(lines, **kw):
+    """テンプレ行リストの {変数} を埋めて返す。"""
+    return [line.format(**kw) for line in lines]
+
+
+def _pick(pool, i):
+    """配列 pool から i 番目（循環）を選ぶ。日替わりローテーション用。"""
+    return pool[i % len(pool)]
 
 
 def jst_today(cfg):
@@ -99,6 +120,36 @@ def week_topics(cfg, start, today):
     return names
 
 
+def _fortune(idx, kw):
+    """朝の冒頭フック＝『今日の運勢』（おみくじ風・総合運＋ラッキー要素）。idxで日替わり。
+
+    内容は学習と無関係でよい。通知が来たら開きたくなる "ゆるいフック" が狙い。
+    """
+    i = idx - 1
+    return [
+        MESSAGES["fortune_header"].format(**kw),
+        "【{0}】{1}".format(_pick(MESSAGES["fortune_ranks"], i),
+                            _pick(MESSAGES["fortune_messages"], i)),
+        "✨ 総合運：" + _pick(MESSAGES["fortune_stars"], i),
+        "🍀 ラッキーカラー：" + _pick(MESSAGES["lucky_colors"], i),
+        "📦 ラッキーアイテム：" + _pick(MESSAGES["lucky_items"], i * 5),
+    ]
+
+
+def _milestone(idx, total, n, rnd):
+    """節目（ラスト数日/1周目完了/各周の折り返し）の特別文。節目でなければ None。"""
+    within = (idx - 1) % n + 1
+    remaining = total - idx
+    kw = dict(idx=idx, total=total, remaining=remaining, within=within, rnd=rnd)
+    if 0 < remaining <= 5:
+        return MESSAGES["progress_countdown"].format(**kw)
+    if idx == n and total > n:  # 1周目の最終日（2周以上あるとき）
+        return MESSAGES["progress_round1_done"].format(**kw)
+    if within == n // 2 + 1:  # 各周の折り返し
+        return MESSAGES["progress_halfway"].format(**kw)
+    return None
+
+
 def build_message(cfg, slot, today):
     start = parse_date(cfg["startDate"])
     ctx = resolve(cfg, biz_index(start, today))
@@ -107,152 +158,73 @@ def build_message(cfg, slot, today):
 
     app = cfg["appUrl"]
     deadline = cfg["deadlineText"]
-    dow = WEEKDAY_JP[today.weekday()]
-    date_label = f"{today.month}/{today.day}（{dow}）"
-    is_friday = today.weekday() == 4
     rnd = ctx["round"]
     topic = ctx["topic"]["name"]
-    prev = ctx["prev"]["name"] if ctx["prev"] else None
+    prev = ctx["prev"]["name"] if ctx["prev"] else ""
+    dow = WEEKDAY_JP[today.weekday()]
+    n = len(cfg["topics"])
+    total = n * cfg.get("rounds", 1)
+    kw = dict(
+        date_label=f"{today.month}/{today.day}（{dow}）",
+        topic=topic, prev=prev, deadline=deadline, app=app,
+        rnd=rnd, rnd_prev=rnd - 1, rounds=cfg.get("rounds", 1),
+        idx=ctx["idx"], total=total, remaining=total - ctx["idx"],
+    )
 
     if slot == "morning":
-        return _morning(cfg, ctx, date_label, app, deadline, is_friday, start, today)
-    if slot == "evening":
-        return _evening(rnd, topic, prev, app, deadline)
-    if slot == "night":
-        return _night(deadline, ctx["is_last_day"], cfg.get("rounds", 1))
-    raise ValueError(f"unknown slot: {slot}")
+        body = _morning(cfg, ctx, kw, start, today, n, total)
+    elif slot == "evening":
+        body = _evening(ctx["idx"], rnd, topic, prev, app, deadline,
+                        is_friday=today.weekday() == 4)
+    else:
+        raise ValueError(f"unknown slot: {slot}")
+    return body + "\n\n" + MESSAGES["footer"]
 
 
-def _morning(cfg, ctx, date_label, app, deadline, is_friday, start, today):
-    rnd = ctx["round"]
-    topic = ctx["topic"]["name"]
-    prev = ctx["prev"]["name"] if ctx["prev"] else None
+def _morning(cfg, ctx, kw, start, today, n, total):
+    idx = ctx["idx"]
+
+    # 冒頭は必ず『今日の運勢』（開きたくなるフック）。その下に区切り線→今日の学習内容
+    lines = _fortune(idx, kw)
+    lines += ["", "──────────"]
 
     if ctx["is_first_day"]:
-        # 1周目の初日（キックオフ）
-        lines = [
-            "本日より学習を開始いたします。よろしくお願いいたします。",
-            "",
-            f"【本日の学習内容（{date_label}）】",
-            f"・新規の論点：*{topic}*",
-            "・復習：初日のためありません",
-            "",
-            "▼ 毎日の取り組み方",
-            "1. アプリで本日の論点を「テストモード」で解答する",
-            "2. 満点が取れるまで繰り返す",
-            f"3. 満点のスクリーンショットを本スレッドへ提出する（提出期限：*{deadline}*）",
-            "",
-            f"アプリ：{app}",
-            "",
-            "通知は平日の 8:00 / 18:00 / 22:00 にお送りします。土日はお休みです。",
-        ]
+        block = MESSAGES["morning_kickoff"]
     elif ctx["is_round_start"]:
-        # 2周目以降の初日（前日の復習はなし。当日の論点1つから再スタート）
-        lines = [
-            f"本日より *{rnd}周目* に入ります。",
-            "",
-            f"{rnd - 1}周目で学んだ内容を、改めてテストモードで定着させましょう。"
-            "解答の根拠まで説明できる状態を目標としてください。",
-            "",
-            f"【本日の復習内容（{date_label}）｜{rnd}周目】",
-            f"・本日の論点：*{topic}*",
-            "・前回の復習：本周の初日のためありません",
-            "",
-            "▼ 本日の取り組み",
-            "1. アプリで本日の論点を「テストモード」で解答する",
-            "2. 満点が取れるまで繰り返す",
-            f"3. 満点のスクリーンショットを本スレッドへ提出する（提出期限：*{deadline}*）",
-            "",
-            f"アプリ：{app}",
-        ]
-    elif rnd == 1:
-        # 1周目の通常日
-        lines = [
-            f"おはようございます。本日の学習内容をお知らせいたします（{date_label}）。",
-            "",
-            f"・新規の論点：*{topic}*",
-            f"・復習の論点：{prev}",
-            "",
-            "▼ 本日の取り組み",
-            "1. アプリで上記2論点を「テストモード」で解答する",
-            "2. 満点が取れるまで繰り返す",
-            f"3. 満点のスクリーンショットを本スレッドへ提出する（提出期限：*{deadline}*）",
-            "",
-            f"アプリ：{app}",
-        ]
+        block = MESSAGES["morning_round_start"]
+    elif ctx["round"] == 1:
+        block = MESSAGES["morning_normal_r1"]
     else:
-        # 2周目以降の通常日
-        lines = [
-            f"おはようございます。本日の復習内容をお知らせいたします（{date_label}）。",
-            "",
-            f"【{rnd}周目・復習】",
-            f"・本日の復習論点：*{topic}*",
-            f"・前回の論点：{prev}",
-            "",
-            "▼ 本日の取り組み",
-            "1. アプリで上記2論点を「テストモード」で解答する",
-            "2. 満点が取れるまで繰り返す",
-            f"3. 満点のスクリーンショットを本スレッドへ提出する（提出期限：*{deadline}*）",
-            "",
-            f"アプリ：{app}",
-        ]
+        block = MESSAGES["morning_normal_r2"]
+    lines += _fmt(block, **kw)
 
-    if is_friday and not ctx["is_round_start"]:
-        wk = week_topics(cfg, start, today)
-        lines += [
-            "",
-            "――――――――――",
-            "【今週学習した論点】",
-            "・" + "　・".join(wk),
-            "",
-            "満点に届いていない論点がある方は、週末のうちに復習を済ませておきましょう。"
-            "未提出のものは本スレッドへお送りください。",
-            "予定より先へ進めていただいても構いません。進めた内容もあわせてご報告ください。",
-            "（土日は通知をお休みします）",
-        ]
+    if today.weekday() == 4 and not ctx["is_round_start"]:  # 金曜（各周初日以外）
+        wk = "　・".join(week_topics(cfg, start, today))
+        lines += _fmt(MESSAGES["morning_friday_extra"], week_topics=wk, **kw)
 
     if ctx["is_last_day"]:
-        lines += [
-            "",
-            "――――――――――",
-            f"本日で全{cfg.get('rounds', 1)}周のカリキュラムが完了します。ここまでの継続、お疲れさまでした。"
-            "以降の自動通知は終了となります。",
-        ]
+        lines += _fmt(MESSAGES["morning_lastday_extra"], **kw)
+
+    # 節目のひとことは末尾にゆるく添える（初日・最終日は専用文があるので付けない）
+    note = _milestone(idx, total, n, ctx["round"])
+    if note and not ctx["is_first_day"] and not ctx["is_last_day"]:
+        lines += ["", note]
 
     return "\n".join(lines)
 
 
-def _evening(rnd, topic, prev, app, deadline):
+def _evening(idx, rnd, topic, prev, app, deadline, is_friday=False):
     if rnd == 1:
-        target = f"本日の論点（①{topic}" + (f"・②{prev}" if prev else "") + "）"
+        rows = ["・① 【{0}】".format(topic), "・② 【{0}】".format(prev)] if prev else ["・【{0}】".format(topic)]
     else:
-        target = f"本日の復習論点（{topic}" + (f"・前回 {prev}" if prev else "") + "）"
-    return "\n".join([
-        "お疲れさまです。移動時間などに、もう一度ご確認ください。",
-        "",
-        f"{target}は、満点を取れましたでしょうか。",
-        f"まだの方は、「テストモード」で満点を取り、スクリーンショットをご提出ください"
-        f"（提出期限：*{deadline}*）。",
-        "",
-        f"アプリ：{app}",
-    ])
-
-
-def _night(deadline, is_last_day=False, rounds=1):
-    closing = (
-        f"本日をもって全{rounds}周のカリキュラムが完了です。長い間お疲れさまでした。"
-        if is_last_day
-        else "明日も 8:00 にお知らせいたします。"
-    )
-    return "\n".join([
-        "本日の日報をご提出ください。",
-        "",
-        "・本日の満点スクリーンショットを本スレッドへお送りください",
-        "・取り組めなかった方も、一言で構いませんので進捗をご報告ください",
-        f"・提出期限：*{deadline}*",
-        "",
-        closing,
-    ])
+        rows = ["・今日 【{0}】".format(topic), "・前回 【{0}】".format(prev)] if prev else ["・【{0}】".format(topic)]
+    target = "\n".join(rows)
+    opener = _pick(MESSAGES["evening_openers"], idx - 1)
+    push = _pick(MESSAGES["evening_pushes"], (idx - 1) * 5)
+    lines = _fmt(MESSAGES["evening_template"], opener=opener, target=target, push=push, app=app, deadline=deadline)
+    if is_friday:  # 金曜18時：週末の帳尻合わせメッセージを添える
+        lines += MESSAGES["evening_friday_extra"]
+    return "\n".join(lines)
 
 
 def post_to_slack(text):
