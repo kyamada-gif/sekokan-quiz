@@ -1,12 +1,13 @@
 name: Slack学習リマインダー
 
-# JST(UTC+9) で 朝8:00 / 夕18:00 に起動。
-# cron は UTC 基準のため 9h 引いた時刻を指定（JapanはDST無し＝常にUTC+9）。
+# JST(UTC+9) で 朝 ≈07:47 / 夕 ≈17:47 に起動（cron は UTC 基準。JapanはDST無し＝常にUTC+9）。
+# ★分を「00」から外しているのは GitHub Actions の schedule が毎時00分に集中して
+#   大幅遅延・稀に欠落するため。混雑帯を避けて定刻±数分に収める狙い。少し前倒しして〜8時/〜18時に着地させる。
 # 平日判定・カリキュラム進度は post.py 側で JST 日付から判断する。
 on:
   schedule:
-    - cron: '0 23 * * *'   # 08:00 JST（前日23:00 UTC）= morning
-    - cron: '0 9 * * *'    # 18:00 JST（09:00 UTC）   = evening
+    - cron: '47 22 * * *'   # 07:47 JST（前日22:47 UTC）= morning
+    - cron: '47 8 * * *'    # 17:47 JST（08:47 UTC）   = evening
   workflow_dispatch:        # 手動テスト用
     inputs:
       slot:
@@ -35,15 +36,27 @@ jobs:
             echo "slot=${{ github.event.inputs.slot }}" >> "$GITHUB_OUTPUT"
           else
             case "${{ github.event.schedule }}" in
-              "0 23 * * *") echo "slot=morning" >> "$GITHUB_OUTPUT" ;;
-              "0 9 * * *")  echo "slot=evening" >> "$GITHUB_OUTPUT" ;;
-              *)            echo "slot=morning" >> "$GITHUB_OUTPUT" ;;
+              "47 22 * * *") echo "slot=morning" >> "$GITHUB_OUTPUT" ;;
+              "47 8 * * *")  echo "slot=evening" >> "$GITHUB_OUTPUT" ;;
+              *)             echo "slot=morning" >> "$GITHUB_OUTPUT" ;;
             esac
           fi
 
+      # 手動Run(workflow_dispatch)＝テスト扱い。テスト用Webhookが未設定なら本番へ誤爆させず即fail。
+      - name: Guard test webhook on manual run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TEST: ${{ secrets.SLACK_WEBHOOK_URL_TEST }}
+        run: |
+          if [ -z "$TEST" ]; then
+            echo "::error::手動Runはテストchへのみ可。Secret SLACK_WEBHOOK_URL_TEST を設定してください。"
+            exit 1
+          fi
+
+      # schedule → 本番ch / workflow_dispatch → テストch に振り分け（post.py は SLACK_WEBHOOK_URL を読むだけ）
       - name: Post to Slack
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ github.event_name == 'workflow_dispatch' && secrets.SLACK_WEBHOOK_URL_TEST || secrets.SLACK_WEBHOOK_URL }}
           DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '' }}
           OVERRIDE_DATE: ${{ github.event.inputs.override_date }}
         run: python3 slackbot/post.py "${{ steps.slot.outputs.slot }}"
