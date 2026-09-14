@@ -19,6 +19,7 @@
     --line:#e7e9ee; --ok:#2f9e54; --ok-bg:#e6f4ec; --ng:#cf5a55; --ng-bg:#fbe9e8; --warn-bg:#fbf6ec;
   }
   *{box-sizing:border-box;}
+  .exam-link{margin:-8px 0 14px;font-size:13.5px;} .exam-link a{color:var(--accent-dk);text-decoration:none;border:1px solid var(--accent-soft2);background:var(--accent-soft);padding:6px 12px;border-radius:999px;display:inline-block;} .exam-link a:hover{background:var(--accent-soft2);}
   body{font-family:"Hiragino Sans","Yu Gothic",sans-serif;max-width:880px;margin:0 auto;padding:24px 18px 80px;line-height:1.95;color:var(--ink);background:var(--bg);font-size:15.5px;}
   h1{font-size:clamp(16px,4.6vw,20px);font-weight:600;color:var(--accent-dk);margin:4px 0 16px;line-height:1.4;overflow-wrap:anywhere;}
   h2{font-size:19px;font-weight:600;color:var(--accent-dk);margin:6px 0 4px;}
@@ -158,6 +159,7 @@
 <body>
 
 <h1>2級建築施工管理 第一次検定 穴埋めクイズ</h1>
+<p class="exam-link"><a href="exam.html">▶ 模擬試験（本番形式・150分・スコアレポート）を受ける</a></p>
 
 <div class="mode-toggle">
   <span class="mode-label">モード：</span>
@@ -4256,6 +4258,8 @@ document.querySelectorAll('.mode-btn').forEach(function(b){ b.classList.toggle('
 showCategory('guide');
 render('guide');
 updateTopicBadges();
+// 模擬試験(exam.html)の結果画面から #t12 のように論点を指定して開く
+(function(){ var h=(location.hash||'').replace('#',''); if(/^t\d+$/.test(h) && TOPICS[h]) { showTopic(h); window.scrollTo(0,0); } })();
 
 // 外側クリックで開いている選択肢を閉じる
 document.addEventListener('click', function(ev) {
