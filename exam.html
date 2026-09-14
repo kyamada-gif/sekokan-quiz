@@ -242,6 +242,28 @@
     .rp .pb{break-before:page;}
   }
   .export-note{font-size:12.5px;color:var(--ink-2);line-height:1.7;margin-top:8px;}
+  /* ---- 間違い演習(学習モード) ---- */
+  .drillbox{background:#fff;border:1.5px solid var(--ink);border-radius:10px;padding:14px 16px;margin-bottom:10px;display:grid;gap:8px;}
+  .drillbox .t{font-weight:600;font-size:15px;}
+  .drillbox .opts{display:grid;gap:4px;font-size:13px;color:var(--ink-2);}
+  .drillbox .opts label{display:flex;align-items:center;gap:8px;}
+  .drill{padding-top:calc(58px + var(--safe-t));padding-bottom:calc(84px + var(--safe-b));}
+  .drill .topbar .in{height:58px;}
+  .prog{font-family:var(--mono);font-size:14px;}
+  .prog small{font-family:var(--gothic);font-size:11px;color:var(--ink-3);display:block;letter-spacing:.1em;}
+  .choice.correct .oval{background:var(--ok);border-color:var(--ok);color:transparent;}
+  .choice.correct{background:#f0f8f3;}
+  .choice.wrong .oval{background:var(--alert);border-color:var(--alert);color:transparent;}
+  .choice.wrong{background:var(--alert-soft);}
+  .choice.locked{cursor:default;}
+  .judge{font-family:var(--gothic);margin:10px 0 4px;padding:10px 12px;border-radius:8px;font-size:14px;font-weight:600;}
+  .judge.ok{background:#e3f2e8;color:var(--ok);} .judge.ng{background:var(--alert-soft);color:var(--alert);}
+  .judge .links{display:flex;gap:12px;flex-wrap:wrap;font-weight:400;font-size:12.5px;margin-top:4px;}
+  .judge .links a{color:var(--sheet);}
+  .botbar .in.single{grid-template-columns:auto 1fr;}
+  .summary{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:20px;}
+  .summary .big{font-family:var(--mono);font-size:44px;line-height:1;}
+  .summary .big small{font-size:16px;color:var(--ink-3);}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
   @media (min-width:600px){ .cells{grid-template-columns:repeat(10,1fr);} .cell{padding:0 6px;} }
 </style>
@@ -257,7 +279,7 @@
 <script>
 'use strict';
 // ====== 定数・保存 ======
-const LS = { session: 'sekokanExam.session.v1', history: 'sekokanExam.history.v1', settings: 'sekokanExam.settings.v1' };
+const LS = { session: 'sekokanExam.session.v1', history: 'sekokanExam.history.v1', settings: 'sekokanExam.settings.v1', drill: 'sekokanExam.drill.v1' };
 const EXCESS_PENALTY = 1;     // 時間切れ提出時、指定数を超えた解答1問につき減点(冊子「減点」・幅は非公開のため仮置き)
 const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 容量超過等は無視 */ } };
@@ -352,6 +374,7 @@ function renderHome() {
     ${running ? `<div class="warnbox" style="background:var(--warn-soft);border-left:3px solid var(--warn);padding:10px 14px;border-radius:0 8px 8px 0;font-size:13.5px;margin-bottom:14px;">受験中の試験があります（${esc(seasonById(session.seasonId).label)}・残り ${Math.floor(remainSec() / 60)} 分）。一覧から選ぶと続きから再開します。</div>` : ''}
     <div class="section-h"><h2>回次を選ぶ</h2><span class="note">${seasons.length} 回次</span></div>
     <ul class="cover-list">${items}</ul>
+    ${hist.length ? drillBox(hist) : ''}
     ${hist.length ? `<div class="section-h"><h2>受験履歴</h2><span class="note">${hist.length} 回</span></div>
     ${hist.length >= 2 ? trendChart(hist) : ''}
     <ul class="hist">${hist.slice().reverse().map(h => `<li><button data-rec="${h.id}"><span>${esc(seasonById(h.seasonId).label)}<br><span class="d">${fmtDate(h.startedAt)}${h.reason === 'timeout' ? '・時間切れ' : ''}</span></span><span class="sc">${h.score}<span style="font-size:11px;color:var(--ink-3)">/40</span></span><span class="pf ${h.pass ? 'pass' : 'fail'}">${h.pass ? '合格ライン' : '未達'}</span></button></li>`).join('')}</ul>` : ''}
@@ -367,6 +390,7 @@ function renderHome() {
   </div>`;
   document.querySelectorAll('.cover').forEach(b => b.addEventListener('click', () => chooseSeason(b.dataset.season)));
   document.querySelectorAll('.hist button').forEach(b => b.addEventListener('click', () => { const r = load(LS.history, []).find(h => h.id === b.dataset.rec); if (r) renderResult(r); }));
+  bindDrillBox(null);
   $('#setReserved').addEventListener('change', e => { settings.showReserved = e.target.checked; save(LS.settings, settings); renderHome(); });
   $('#setDuration').addEventListener('change', e => { settings.durationMin = Math.max(10, Math.min(300, +e.target.value || 150)); save(LS.settings, settings); e.target.value = settings.durationMin; });
   $('#setName').addEventListener('change', e => { settings.name = e.target.value.trim(); save(LS.settings, settings); });
@@ -575,6 +599,103 @@ function makeRecord(sess) {
            durationSec: sess.durationSec, name: settings.name || '', answers: sess.answers, flags: sess.flags, timeOnQ: sess.timeOnQ, ...g };
 }
 
+// ====== 間違い演習(学習モード): 履歴の不正解から出題、即時正誤、正解は「克服」 ======
+const drillState = () => Object.assign({ cleared: {}, run: null }, load(LS.drill, {}));
+function drillPool(records, opts) {
+  // 各問題の「最新の受験結果」で判定(後の受験で正解していれば外す)
+  const latest = {};
+  for (const r of records.slice().sort((a, b) => a.startedAt - b.startedAt))
+    for (const p of r.perQ) latest[r.seasonId + '-' + p.no] = p;
+  const st = drillState();
+  return Object.entries(latest).filter(([id, p]) => {
+    const q = BANK.questions.find(x => x.id === id); if (!q || !q.answer) return false;
+    const wrong = p.graded && p.ua.length && !p.ok, blank = !p.ua.length;
+    if (!(wrong || (opts.blank && blank))) return false;
+    if (!opts.cleared && st.cleared[id]) return false;
+    return true;
+  }).map(([id]) => id);
+}
+function drillBox(records, single) {
+  const st = drillState();
+  const base = drillPool(records, { blank: false, cleared: false }).length;
+  const resume = !single && st.run && st.run.queue.length > st.run.idx;
+  return `<div class="drillbox" data-scope="${single ? 'one' : 'all'}"><div class="t">${single ? 'この回の間違いを演習する' : '間違えた問題を演習する'}　<span class="prog" id="drillCount">${base}問</span></div>
+    <div class="opts"><label><input type="checkbox" class="drillBlank"> 未解答だった問題も含める</label><label><input type="checkbox" class="drillCleared"> 克服済み（演習で正解した問題）も含める${Object.keys(st.cleared).length ? `　<span style="color:var(--ink-3)">${Object.keys(st.cleared).length}問</span>` : ''}</label></div>
+    <div class="row"><button class="btn drillStart" ${base ? '' : 'disabled'}>演習を始める</button>${resume ? `<button class="btn ghost" id="drillResume">続きから（${st.run.idx} / ${st.run.queue.length}）</button>` : ''}</div>
+    <div style="font-size:12px;color:var(--ink-3)">タイマーなし・選ぶとすぐ正誤が出ます。正解した問題は「克服済み」になり次回は出ません。演習の結果は受験履歴には入りません。</div></div>`;
+}
+function bindDrillBox(rec) {
+  const box = document.querySelector('.drillbox'); if (!box) return;
+  const records = rec ? [rec] : load(LS.history, []);
+  const opts = () => ({ blank: box.querySelector('.drillBlank').checked, cleared: box.querySelector('.drillCleared').checked });
+  const refresh = () => { const n = drillPool(records, opts()).length; box.querySelector('#drillCount').textContent = n + '問'; box.querySelector('.drillStart').disabled = !n; };
+  box.querySelectorAll('input').forEach(i => i.addEventListener('change', refresh));
+  box.querySelector('.drillStart').addEventListener('click', () => {
+    const pool = drillPool(records, opts()); if (!pool.length) return;
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    const st = drillState(); st.run = { queue: pool, idx: 0, correct: 0, results: {}, startedAt: Date.now() }; save(LS.drill, st);
+    renderDrill();
+  });
+  const rb = box.querySelector('#drillResume'); if (rb) rb.addEventListener('click', renderDrill);
+}
+function renderDrill() {
+  view = 'drill'; stopTicking();
+  const st = drillState(), run = st.run;
+  if (!run || run.idx >= run.queue.length) { renderDrillSummary(); return; }
+  const q = BANK.questions.find(x => x.id === run.queue[run.idx]);
+  const s = seasonById(q.season), sec = sectionOf(s, q.no);
+  const multi = q.answerMode === 'multi2';
+  const done = run.results[q.id];   // 解答済み(復元時)
+  const picked = done ? done.ua : [];
+  $('#app').innerHTML = `
+    <div class="topbar"><div class="in">
+      <div class="sec"><div class="name">間違い演習　${esc(s.label)} No.${q.no}</div><div class="cnt">${esc(sec.label)}</div></div>
+      <div class="prog"><small>進捗</small>${run.idx + 1} / ${run.queue.length}</div>
+    </div></div>
+    <div class="page drill"><div class="q">
+      <div class="no"><span class="b">〔No．${zen(q.no)}〕</span><span class="s">${esc(s.label)}</span></div>
+      <p class="body">${esc(q.body)}</p>${q.bodyImgs.map(u => `<img class="img" src="${esc(u)}" alt="問題の図">`).join('')}
+      <ul class="choices">${q.choices.map((c, i) => { const n = i + 1; return `<li><button class="choice${picked.includes(n) ? ' on' : ''}" data-n="${n}"><span class="oval">${n}</span><span>${c.img ? `<img class="cimg" src="${esc(c.img)}" alt="選択肢${n}の図">` : esc(c.text)}</span></button></li>`; }).join('')}</ul>
+      <div class="qhint">${multi ? '2つ選ぶ（2つ目を選ぶと判定）' : '1つ選ぶ'}</div>
+      <div id="judge"></div>
+    </div></div>
+    <div class="botbar"><div class="in single"><button class="nav prev" id="drillQuit">中断</button><button class="nav next" id="drillNext" disabled>次へ →</button></div></div>`;
+  let sel = picked.slice();
+  const judge = () => {
+    const ok = sameSet(sel, q.answer);
+    document.querySelectorAll('.choice').forEach(b => { const n = +b.dataset.n; b.classList.add('locked'); b.classList.remove('on'); if (q.answer.includes(n)) b.classList.add('correct'); else if (sel.includes(n)) b.classList.add('wrong'); });
+    $('#judge').innerHTML = `<div class="judge ${ok ? 'ok' : 'ng'}">${ok ? '○ 正解 — 克服済みにしました' : '× 不正解 — 正答は ' + q.answer.join(',') + ''}
+      <div class="links">${q.topic ? `<a href="index.html#${q.topic}" target="_blank" rel="noopener">教材で復習（${esc(q.topicName || q.topic)}）</a>` : ''}${q.src.text.startsWith('kakomonn:') ? `<a href="https://kenchikusekou2.kakomonn.com/questions/${q.src.text.slice(9)}" target="_blank" rel="noopener">解説を見る（過去問ドットコム）</a>` : ''}${q.lawRevised ? '<span style="color:var(--warn)">※出題後に法改正あり</span>' : ''}</div></div>`;
+    $('#drillNext').disabled = false;
+    if (!done) { run.results[q.id] = { ua: sel, ok }; if (ok) { run.correct++; st.cleared[q.id] = Date.now(); } save(LS.drill, st); }
+  };
+  document.querySelectorAll('.choice').forEach(b => b.addEventListener('click', () => {
+    if (run.results[q.id]) return;
+    const n = +b.dataset.n;
+    if (multi) { if (sel.includes(n)) sel = sel.filter(x => x !== n); else sel.push(n); document.querySelectorAll('.choice').forEach(x => x.classList.toggle('on', sel.includes(+x.dataset.n))); if (sel.length === 2) judge(); }
+    else { sel = [n]; judge(); }
+  }));
+  if (done) judge();
+  $('#drillNext').addEventListener('click', () => { run.idx++; save(LS.drill, st); renderDrill(); window.scrollTo(0, 0); });
+  $('#drillQuit').addEventListener('click', () => openDialog(`<h2>演習を中断しますか？</h2><p>ここまでの結果は保存され、Homeの「続きから」で再開できます。</p><div class="actions"><button class="btn ghost" data-act="close">戻る</button><button class="btn" data-act="quit">中断してHomeへ</button></div>`, { quit: () => { closeDialog(); renderHome(); } }));
+  window.scrollTo(0, 0);
+}
+function renderDrillSummary() {
+  view = 'drillDone';
+  const st = drillState(), run = st.run;
+  const total = run ? run.queue.length : 0, correct = run ? run.correct : 0;
+  const wrongIds = run ? run.queue.filter(id => run.results[id] && !run.results[id].ok) : [];
+  $('#app').innerHTML = `<div class="page">
+    <div class="eyebrow">間違い演習</div><h1 style="font-family:var(--gothic);font-size:18px">演習おわり</h1>
+    <div class="summary"><div class="big">${correct}<small> / ${total} 正解</small></div>
+      <p style="font-size:13.5px;color:var(--ink-2)">克服済み ${correct} 問。まだ間違えた ${wrongIds.length} 問は次回の演習に残ります。</p>
+      ${wrongIds.length ? `<ul style="font-size:13px;padding-left:1.2em;margin:6px 0 0">${wrongIds.map(id => { const q = BANK.questions.find(x => x.id === id); return `<li>${esc(seasonById(q.season).label)} No.${q.no}　${esc(q.body.split('\n')[0].slice(0, 40))}</li>`; }).join('')}</ul>` : ''}
+      <div class="row" style="margin-top:16px"><button class="btn" id="homeBtn">Homeへ</button>${wrongIds.length ? '<button class="btn ghost" id="againBtn">間違えた分をもう一度</button>' : ''}</div></div></div>`;
+  st.run = null; save(LS.drill, st);
+  $('#homeBtn').addEventListener('click', renderHome);
+  const ag = $('#againBtn'); if (ag) ag.addEventListener('click', () => { const s2 = drillState(); s2.run = { queue: wrongIds, idx: 0, correct: 0, results: {}, startedAt: Date.now() }; save(LS.drill, s2); renderDrill(); });
+}
+
 // ====== 画面: 結果 ======
 const fmtDate = t => { const d = new Date(t); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const fmtDur = sec => `${Math.floor(sec / 60)}分${String(Math.round(sec % 60)).padStart(2, '0')}秒`;
@@ -595,25 +716,27 @@ function renderResult(rec) {
       <div class="detail">正答 ${rec.correct} 問 ／ 解答 ${total} 問${rec.excess ? ` ／ 指定数超過 ${rec.excess} 問（−${rec.excess * EXCESS_PENALTY} 点）` : ''}<br>
         所要時間 ${fmtDur(elapsed)}（制限 ${Math.round(rec.durationSec / 60)} 分）　受験日時 ${fmtDate(rec.startedAt)}${rec.name ? '　' + esc(rec.name) : ''}</div>
     </div>
+    ${drillBox([rec], true)}
     <div class="section-h"><h2>セクション別</h2><span class="note">正答 / 指定数</span></div>
     <table class="sec"><tr><th>セクション</th><th style="text-align:right">解答</th><th style="text-align:right">正答</th><th style="width:34%">正答率</th></tr>
       ${rec.bySection.map(b => { const pct = b.need ? Math.round(b.correct / b.need * 100) : 0; return `<tr><td>${esc(b.label)}${b.excess ? `<br><span style="font-size:11px;color:var(--alert)">超過 ${b.excess} 問</span>` : ''}</td><td class="n">${b.answered}/${b.need}</td><td class="n">${b.correct}/${b.need}</td><td><span style="font-family:var(--mono);font-size:12px">${pct}%</span><div class="bar"><i style="width:${pct}%"></i></div></td></tr>`; }).join('')}
     </table>
-    <div class="section-h"><h2>問題別（押すと問題と正答を表示）</h2></div>
-    <div class="filters">${[['all', 'すべて'], ['ng', '不正解'], ['na', '未解答'], ['flag', '見直し印']].map(([k, l]) => `<button class="chip${resultFilter === k ? ' on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
-    <ul class="qlist" id="qlist"></ul>
     <div class="section-h"><h2>スコアレポート</h2></div>
     <div class="row">
       <button class="btn" id="printBtn">PDFで保存・印刷</button>
       <button class="btn ghost" id="jsonBtn">JSONで書き出す</button>
     </div>
     <div class="export-note">iPhone：印刷画面で「プリンタ」を選ばず、プレビューを<b>共有ボタン</b>（または長押し）→「"ファイル"に保存」でPDFになります。Android：印刷先で「PDFとして保存」。PC：印刷ダイアログで「PDFとして保存」。<br>レポートはこの端末内にだけ保存されます。JSONは記録の控え・共有用です。</div>
+    <div class="section-h"><h2>問題別（押すと問題と正答を表示）</h2></div>
+    <div class="filters">${[['all', 'すべて'], ['ng', '不正解'], ['na', '未解答'], ['flag', '見直し印']].map(([k, l]) => `<button class="chip${resultFilter === k ? ' on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
+    <ul class="qlist" id="qlist"></ul>
     <div class="row" style="margin-top:22px;justify-content:space-between">
       <button class="btn ghost" id="homeBtn">${fromSession ? 'ホームへ戻る' : '← 戻る'}</button>
       <button class="btn ghost" id="delBtn" style="border-color:var(--rule);color:var(--ink-3);font-weight:400">この記録を削除</button>
     </div>
   </div>`;
   renderPrint(rec);
+  bindDrillBox(rec);
   $('#printBtn').addEventListener('click', () => window.print());
   $('#jsonBtn').addEventListener('click', () => exportJSON(rec));
   const renderList = () => {
